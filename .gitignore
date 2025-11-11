@@ -33,3 +33,7 @@ desktop.ini
 
 # Simulation outputs
 *.png
+!dla_result.png
+
+# Report text files
+report.txt
