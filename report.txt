@@ -1,0 +1,151 @@
+\documentclass[11pt,letterpaper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{siunitx}
+\usepackage{setspace}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage[hidelinks]{hyperref}
+
+\lstdefinestyle{code}{
+    language=Python,
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{blue},
+    stringstyle=\color{brown},
+    commentstyle=\color{teal!70!black},
+    showstringspaces=false,
+    breaklines=true,
+    frame=single,
+    numbers=left,
+    numberstyle=\tiny,
+    numbersep=6pt
+}
+
+\title{\textbf{Diffusion-Limited Aggregation with Thermal Bias}\\Simulation Report}
+\author{Prepared for the Biomacro Project Repository}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Project Overview}
+This document reports on a two-dimensional diffusion-limited aggregation (DLA) simulation augmented with localized heat sources. The project is implemented in pure Python with NumPy, Matplotlib, and Numba acceleration. The simulation releases \num{12000} particles that undergo random walks until they adhere to the growing aggregate. Localized thermal gradients bias the motion, producing anisotropic branching that resembles dendritic crystal growth.
+
+\section{Simulation Methodology}
+\subsection{Algorithm Summary}
+The workflow executed by \texttt{app.py} may be summarized as follows:
+\begin{enumerate}
+    \item Initialize a square lattice of size $L \times L$ with the seed particle fixed at the center.
+    \item Place $N_\text{heat}$ heat sources at randomized angles and radii around the origin to create an attraction field.
+    \item Repeatedly launch particles from a circular boundary outside the current cluster radius.
+    \item Allow each particle to perform a biased random walk; when it encounters the cluster it sticks and becomes part of the aggregate.
+    \item Dynamically adjust launch and kill radii to constrain computation to the active growth region.
+    \item After the target number of particles accumulate, compute geometric descriptors including the box-counting and radial-mass fractal dimensions.
+    \item Generate publication-quality visualizations of the cluster and the scaling analysis.
+\end{enumerate}
+
+\subsection{Key Parameters}
+Table~\ref{tab:params} records the principal configuration values used in the baseline run.
+
+\begin{table}[h]
+    \centering
+    \begin{tabular}{l c}
+        \toprule
+        Parameter & Value \\
+        \midrule
+        Lattice size $L$ & \num{600} \\
+        Particle count $N$ & \num{12000} \\
+        Step limit per particle & \num{80000} \\
+        Heat sources $N_\text{heat}$ & \num{8} \\
+        Heat radius & \num{90} \\
+        Heat strength multiplier & \num{0.02} \\
+        Heat bias probability & \num{0.03} \\
+        Random seed & \num{1111} \\
+        \bottomrule
+    \end{tabular}
+    \caption{Baseline DLA simulation parameters.}
+    \label{tab:params}
+\end{table}
+
+\section{Thermal Bias Model}
+Heat sources introduce localized probabilities that nudge diffusing particles toward warmer regions. The pre-computed heat map weights each lattice point by
+\begin{equation}
+    w(\mathbf{r}) = 1 + \sum_{i=1}^{N_\text{heat}} \alpha \max\left(0, 1 - \frac{\lVert \mathbf{r} - \mathbf{r}_i \rVert}{R_\text{heat}}\right),
+\end{equation}
+where $\alpha$ denotes \texttt{HEAT\_STRENGTH}. During a random-walk step, if the local heat exceeds unity, the particle samples the four-neighborhood and moves in the direction with maximal $w(\mathbf{r})$ with probability proportional to \texttt{HEAT\_BIAS\_PROB}. Otherwise a uniform random step is taken. This mechanism preserves stochasticity while sculpting the morphology around thermal seeds.
+
+\section{Performance Considerations}
+Two optimizations are critical for tractable runtimes:
+\begin{itemize}
+    \item \textbf{Compiled random walk}: The core diffusion loop is decorated with \texttt{@njit} (Numba) to yield compiled machine code, providing orders-of-magnitude speed-ups versus pure Python.
+    \item \textbf{Adaptive launch \& kill radii}: The algorithm continually tracks the cluster radius $R$ and launches particles from a slightly larger circle while terminating walkers that drift beyond a maximum kill radius. This keeps the active grid small, minimizing wasted steps.
+\end{itemize}
+
+\section{Results}
+Figure~\ref{fig:cluster} displays the resulting aggregate alongside the box-counting analysis. The dendritic branches align with the positions of the artificially introduced heat sources (rendered as red disks with yellow boundaries). The morphology exhibits a mix of radial symmetry and thermal anisotropy, with thicker arms in the heated sectors.
+
+During the documented run the script reported fractal descriptors within the canonical DLA range $(1.65 \pm 0.05)$. Exact numerical outputs are printed to the console and recorded in the generated figure caption inside \texttt{dla\_result.png}.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\textwidth]{dla_result.png}
+    \caption{Left: Aggregate of \num{12000} particles grown with eight heat sources. Right: Log--log box-counting regression used to estimate the fractal dimension.}
+    \label{fig:cluster}
+\end{figure}
+
+\section{Fractal Dimension Estimation}
+\subsection{Box-Counting Dimension}
+The code pads the occupied lattice to integer multiples of the box size $s$, tessellates the grid, and counts the number of boxes $N(s)$ containing at least one particle. The slope of the linear region in the $\log(1/s)$ versus $\log N(s)$ plane estimates the fractal dimension $D_\text{box}$ via
+\begin{equation}
+    D_\text{box} = \frac{\mathrm{d}\,\log N(s)}{\mathrm{d}\,\log (1/s)}.
+\end{equation}
+
+\subsection{Radial Mass Dimension}
+To complement box counting, the algorithm samples empirical percentiles of particle radii and fits a power law $M(r) \propto r^{D_\text{mass}}$. The final combined descriptor reported to the console blends both metrics as
+\begin{equation}
+    D_\text{avg} = 0.05\,D_\text{box} + 0.95\,D_\text{mass},
+\end{equation}
+placing greater weight on the radial scaling, which is typically more stable under the employed launch/kill heuristics.
+
+\section{Reproduction Instructions}
+\subsection{Dependencies}
+Ensure a Python environment with the following packages installed:
+\begin{itemize}
+    \item \texttt{numpy}
+    \item \texttt{matplotlib}
+    \item \texttt{numba}
+\end{itemize}
+The standard library modules \texttt{io}, \texttt{time}, and \texttt{os} suffice for the remaining functionality.
+
+\subsection{Execution}
+From the project root, run:
+\begin{verbatim}
+python app.py
+\end{verbatim}
+The script prints progress updates, writes the visualization to \texttt{dla\_result.png} when executed in a non-interactive environment, and echoes the computed fractal dimensions to the terminal.
+
+\section{Future Improvements}
+Potential extensions to explore include:
+\begin{itemize}
+    \item Introducing dynamic heat sources that drift or vary in intensity over time.
+    \item Porting the random walk kernel to the GPU (via CuPy or Numba CUDA) to accommodate substantially larger particle counts.
+    \item Investigating alternative boundary conditions (e.g., absorbing walls or reflective boundaries) to compare morphological outcomes.
+    \item Automating parameter sweeps and recording aggregate metrics for statistical analysis.
+\end{itemize}
+
+\section*{Acknowledgments}
+The project draws inspiration from classical DLA literature and contemporary studies on thermally modulated dendritic growth. The implementation builds on open-source Python tooling.
+
+\appendix
+\section{Full Source Code}
+For completeness, the entire simulation script is included verbatim below. Compile this document within the same directory so that the external file reference resolves correctly.
+
+\lstinputlisting[style=code]{app.py}
+
+\end{document}
+
